@@ -38,10 +38,10 @@ func newDefaultCluster() *Cluster {
 		DNSServiceIP:             "10.3.0.10",
 		K8sVer:                   "v1.2.0_coreos.1",
 		HyperkubeImageRepo:       "quay.io/coreos/hyperkube",
-		ControllerInstanceType:   "m3.medium",
+		ControllerInstanceType:   "m3.large",
 		ControllerRootVolumeSize: 30,
 		WorkerCount:              1,
-		WorkerInstanceType:       "m3.medium",
+		WorkerInstanceType:       "m3.large",
 		WorkerRootVolumeSize:     30,
 	}
 }
