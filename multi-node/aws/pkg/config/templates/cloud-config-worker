@@ -23,11 +23,17 @@ coreos:
         After=docker.service
 
         [Service]
+        ExecStartPre=/usr/bin/touch /etc/hosts
         Environment=KUBELET_VERSION={{.K8sVer}}
         Environment=KUBELET_ACI={{.HyperkubeImageRepo}}
-        Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf --mount volume=dns,target=/etc/resolv.conf"
+        Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf --mount volume=dns,target=/etc/resolv.conf --volume rktbin,kind=host,source=/usr/bin/rkt --mount volume=rktbin,target=/usr/bin/rkt --volume var-lib-rkt,kind=host,source=/var/lib/rkt --mount volume=var-lib-rkt,target=/var/lib/rkt --volume=stage,kind=host,source=/usr/lib/rkt --mount volume=stage,target=/usr/lib/rkt --volume=mp,kind=host,source=/usr/sbin/modprobe --mount volume=mp,target=/usr/bin/modprobe"
         ExecStart=/usr/lib/coreos/kubelet-wrapper \
         --api-servers={{.SecureAPIServers}} \
+        --network-plugin-dir=/etc/kubernetes/cni/net.d \
+        --network-plugin={{.K8sNetworkPlugin}} \
+        --container-runtime={{.ContainerRuntime}} \
+        --rkt-path=/usr/bin/rkt \
+        --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
         --register-node=true \
         --allow-privileged=true \
         --config=/etc/kubernetes/manifests \
@@ -41,6 +47,17 @@ coreos:
         RestartSec=10
         [Install]
         WantedBy=multi-user.target
+
+{{ if isset .ContainerRuntime "rkt" }}
+    - name: rkt-api.service
+      enable: true
+      command: start
+      content: |
+        [Service]
+        ExecStart=/usr/bin/rkt api-service
+        Restart=always
+        RestartSec=10
+{{ end }}
 
 {{ if .UseCalico }}
     - name: calico-node.service
@@ -142,6 +159,16 @@ write_files:
               - mountPath: /etc/kubernetes/ssl
                 name: "etc-kube-ssl"
                 readOnly: true
+              - mountPath: /sys/module/nf_conntrack/parameters
+                name: sys-hashsize
+                readOnly: false 
+              - mountPath: /var/run/dbus
+                name: dbus
+                readOnly: false
+              - mountPath: /proc/sys/net
+                name: proc-sys-net
+                readOnly: false 
+
           volumes:
             - name: "ssl-certs"
               hostPath:
@@ -152,6 +179,15 @@ write_files:
             - name: "etc-kube-ssl"
               hostPath:
                 path: "/etc/kubernetes/ssl"
+            - hostPath:
+                path: /sys/module/nf_conntrack/parameters
+              name: sys-hashsize
+            - hostPath:
+                path: /var/run/dbus
+              name: dbus
+            - hostPath:
+                path: /proc/sys/net
+              name: proc-sys-net
 
   - path: /etc/kubernetes/worker-kubeconfig.yaml
     content: |
@@ -193,5 +229,14 @@ write_files:
                 }
             }
         }
+{{ else if isset .ContainerRuntime "rkt" }}
+  - path: /etc/rkt/net.d/10-flannel.conf
+    content: |
+        {
+            "name": "rkt.kubernetes.io",
+            "type": "flannel",
+            "delegate": {
+                "isDefaultGateway": true
+            }
+        }
 {{ end }}
-

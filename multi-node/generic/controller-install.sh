@@ -33,6 +33,9 @@ export DNS_SERVICE_IP=10.3.0.10
 # Whether to use Calico for Kubernetes network policy.
 export USE_CALICO=false
 
+# Determines the container runtime for kubernetes to use. Accepts 'docker' or 'rkt'.
+export RUNTIME=docker
+
 # The above settings can optionally be overridden using an environment file:
 ENV_FILE=/run/coreos-kubernetes/options.env
 
@@ -56,7 +59,7 @@ function init_config {
         fi
     done
 
-    if [ $USE_CALICO = "true" ]; then
+    if [ $USE_CALICO = "true" ] || [ $RUNTIME = "rkt" ]; then
         export K8S_NETWORK_PLUGIN="cni"
     else
         export K8S_NETWORK_PLUGIN=""
@@ -95,12 +98,17 @@ function init_templates {
 [Service]
 Environment=KUBELET_VERSION=${K8S_VER}
 Environment=KUBELET_ACI=${HYPERKUBE_IMAGE_REPO}
+Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf --mount volume=dns,target=/etc/resolv.conf --volume rktbin,kind=host,source=/usr/bin/rkt --mount volume=rktbin,target=/usr/bin/rkt --volume var-lib-rkt,kind=host,source=/var/lib/rkt --mount volume=var-lib-rkt,target=/var/lib/rkt --volume=stage,kind=host,source=/usr/lib/rkt --mount volume=stage,target=/usr/lib/rkt --volume=mp,kind=host,source=/usr/sbin/modprobe --mount volume=mp,target=/usr/bin/modprobe"
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
+ExecStartPre=/usr/bin/touch /etc/hosts
 ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --api-servers=http://127.0.0.1:8080 \
   --register-schedulable=false \
   --network-plugin-dir=/etc/kubernetes/cni/net.d \
   --network-plugin=${K8S_NETWORK_PLUGIN} \
+  --container-runtime=${RUNTIME} \
+  --rkt-path=/usr/bin/rkt \
+  --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
   --allow-privileged=true \
   --config=/etc/kubernetes/manifests \
   --hostname-override=${ADVERTISE_IP} \
@@ -114,6 +122,20 @@ WantedBy=multi-user.target
 EOF
     }
 
+    local TEMPLATE=/etc/systemd/system/rkt-api.service
+    [ $RUNTIME = "rkt" ] && [ ! -f $TEMPLATE ] && {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Service]
+ExecStart=/usr/bin/rkt api-service
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    }
 
     local TEMPLATE=/etc/systemd/system/calico-node.service
     [ "$USE_CALICO" = "true" ] && [ ! -f $TEMPLATE ] && {
@@ -173,10 +195,28 @@ spec:
     - mountPath: /etc/ssl/certs
       name: ssl-certs-host
       readOnly: true
+    - mountPath: /sys/module/nf_conntrack/parameters
+      name: sys-hashsize
+      readOnly: false 
+    - mountPath: /var/run/dbus
+      name: dbus
+      readOnly: false
+    - mountPath: /proc/sys/net
+      name: proc-sys-net
+      readOnly: false 
   volumes:
   - hostPath:
       path: /usr/share/ca-certificates
     name: ssl-certs-host
+  - hostPath:
+      path: /sys/module/nf_conntrack/parameters
+    name: sys-hashsize
+  - hostPath:
+      path: /var/run/dbus
+    name: dbus
+  - hostPath:
+      path: /proc/sys/net
+    name: proc-sys-net
 EOF
     }
 
@@ -857,6 +897,20 @@ EOF
 EOF
     }
 
+    local TEMPLATE=/etc/kubernetes/cni/net.d/10-flannel.conf
+    [ $USE_CALICO = "false" ] && [ $RUNTIME = "rkt" ] && [ ! -f $TEMPLATE ] && {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+{
+    "name": "rkt.kubernetes.io",
+    "type": "flannel",
+    "delegate": {
+        "isDefaultGateway": true
+     }
+}
+EOF
+    }
 }
 
 function start_addons {
@@ -899,6 +953,17 @@ systemctl stop update-engine; systemctl mask update-engine
 systemctl daemon-reload
 systemctl enable flanneld; systemctl start flanneld
 systemctl enable kubelet; systemctl start kubelet
+
+# TODO(pb): these options together have not been tested. They shouldn't be mutually exclusive options in the future.
+if [ $RUNTIME = "rkt" ] && [ $USE_CALICO = "true" ]; then
+	echo "Setting USE_CALICO=true and RUNTIME=rkt are not compatable options for the time being. Please set USE_CALICO=true only with the docker runtime."
+	exit 1
+fi
+
+if [ $RUNTIME = "rkt" ]; then
+        systemctl enable rkt-api; systemctl start rkt-api
+fi
+
 if [ $USE_CALICO = "true" ]; then
         systemctl enable calico-node; systemctl start calico-node
         enable_calico_policy

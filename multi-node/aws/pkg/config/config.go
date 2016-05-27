@@ -38,6 +38,7 @@ func newDefaultCluster() *Cluster {
 		DNSServiceIP:             "10.3.0.10",
 		K8sVer:                   "v1.3.0-beta.2_coreos.0",
 		HyperkubeImageRepo:       "quay.io/coreos/hyperkube",
+		ContainerRuntime:         "docker",
 		ControllerInstanceType:   "m3.medium",
 		ControllerRootVolumeSize: 30,
 		WorkerCount:              1,
@@ -120,6 +121,7 @@ type Cluster struct {
 	DNSServiceIP             string            `yaml:"dnsServiceIP,omitempty"`
 	K8sVer                   string            `yaml:"kubernetesVersion,omitempty"`
 	HyperkubeImageRepo       string            `yaml:"hyperkubeImageRepo,omitempty"`
+	ContainerRuntime         string            `yaml:"containerRuntime,omitempty"`
 	KMSKeyARN                string            `yaml:"kmsKeyArn,omitempty"`
 	CreateRecordSet          bool              `yaml:"createRecordSet,omitempty"`
 	RecordSetTTL             int               `yaml:"recordSetTTL,omitempty"`
@@ -151,7 +153,7 @@ func (c Cluster) Config() (*Config, error) {
 	config.APIServers = fmt.Sprintf("http://%s:8080", c.ControllerIP)
 	config.SecureAPIServers = fmt.Sprintf("https://%s:443", c.ControllerIP)
 	config.APIServerEndpoint = fmt.Sprintf("https://%s", c.ExternalDNSName)
-	if config.UseCalico {
+	if config.UseCalico || config.ContainerRuntime == "rkt" {
 		config.K8sNetworkPlugin = "cni"
 	}
 
