@@ -22,6 +22,9 @@ export DNS_SERVICE_IP=10.3.0.10
 # Whether to use Calico for Kubernetes network policy.
 export USE_CALICO=false
 
+# Determines the container runtime for kubernetes to use. Accepts 'docker' or 'rkt'.
+export CONTAINER_RUNTIME=docker
+
 # The above settings can optionally be overridden using an environment file:
 ENV_FILE=/run/coreos-kubernetes/options.env
 
@@ -57,11 +60,24 @@ function init_templates {
 [Service]
 Environment=KUBELET_VERSION=${K8S_VER}
 Environment=KUBELET_ACI=${HYPERKUBE_IMAGE_REPO}
+Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf \
+  --mount volume=dns,target=/etc/resolv.conf \
+  --volume rktbin,kind=host,source=/usr/bin/rkt \
+  --mount volume=rktbin,target=/usr/bin/rkt \
+  --volume var-lib-rkt,kind=host,source=/var/lib/rkt \
+  --mount volume=var-lib-rkt,target=/var/lib/rkt \
+  --volume=stage,kind=host,source=/usr/lib/rkt \
+  --mount volume=stage,target=/usr/lib/rkt \
+  --volume=mp,kind=host,source=/usr/sbin/modprobe \
+  --mount volume=mp,target=/usr/bin/modprobe"
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
 ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --api-servers=${CONTROLLER_ENDPOINT} \
   --network-plugin-dir=/etc/kubernetes/cni/net.d \
   --network-plugin=${K8S_NETWORK_PLUGIN} \
+  --container-runtime=${CONTAINER_RUNTIME} \
+  --rkt-path=/usr/bin/rkt \
+  --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
   --register-node=true \
   --allow-privileged=true \
   --config=/etc/kubernetes/manifests \
@@ -79,8 +95,20 @@ WantedBy=multi-user.target
 EOF
     fi
 
+    local TEMPLATE=/etc/systemd/system/rkt-api.service
+    if [ ${CONTAINER_RUNTIME} = "rkt" ] && [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Service]
+ExecStart=/usr/bin/rkt api-service
+Restart=always
+RestartSec=10
+EOF
+    fi
+
     local TEMPLATE=/etc/systemd/system/calico-node.service
-    if [ ! -f $TEMPLATE ]; then
+    if [ "${USE_CALICO}" = "true" ] && [ ! -f "${TEMPLATE}" ]; then
         echo "TEMPLATE: $TEMPLATE"
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
@@ -159,24 +187,42 @@ spec:
     securityContext:
       privileged: true
     volumeMounts:
-      - mountPath: /etc/ssl/certs
-        name: "ssl-certs"
-      - mountPath: /etc/kubernetes/worker-kubeconfig.yaml
-        name: "kubeconfig"
-        readOnly: true
-      - mountPath: /etc/kubernetes/ssl
-        name: "etc-kube-ssl"
-        readOnly: true
+    - mountPath: /etc/ssl/certs
+      name: "ssl-certs"
+    - mountPath: /etc/kubernetes/worker-kubeconfig.yaml
+      name: "kubeconfig"
+      readOnly: true
+    - mountPath: /etc/kubernetes/ssl
+      name: "etc-kube-ssl"
+      readOnly: true
+    - mountPath: /sys/module/nf_conntrack/parameters
+      name: sys-hashsize
+      readOnly: false 
+    - mountPath: /var/run/dbus
+      name: dbus
+      readOnly: false
+    - mountPath: /proc/sys/net
+      name: proc-sys-net
+      readOnly: false 
   volumes:
-    - name: "ssl-certs"
-      hostPath:
-        path: "/usr/share/ca-certificates"
-    - name: "kubeconfig"
-      hostPath:
-        path: "/etc/kubernetes/worker-kubeconfig.yaml"
-    - name: "etc-kube-ssl"
-      hostPath:
-        path: "/etc/kubernetes/ssl"
+  - name: "ssl-certs"
+    hostPath:
+      path: "/usr/share/ca-certificates"
+  - name: "kubeconfig"
+    hostPath:
+      path: "/etc/kubernetes/worker-kubeconfig.yaml"
+  - name: "etc-kube-ssl"
+    hostPath:
+      path: "/etc/kubernetes/ssl"
+  - hostPath:
+      path: /sys/module/nf_conntrack/parameters
+    name: sys-hashsize
+  - hostPath:
+      path: /var/run/dbus
+    name: dbus
+  - hostPath:
+      path: /proc/sys/net
+    name: proc-sys-net
 EOF
     fi
 
@@ -264,8 +310,11 @@ systemctl stop update-engine; systemctl mask update-engine
 systemctl daemon-reload
 systemctl enable flanneld; systemctl start flanneld
 systemctl enable kubelet; systemctl start kubelet
+
+if [ $CONTAINER_RUNTIME = "rkt" ]; then
+        systemctl enable rkt-api; systemctl start rkt-api
+fi
+
 if [ $USE_CALICO = "true" ]; then
         systemctl enable calico-node; systemctl start calico-node
 fi
-
-

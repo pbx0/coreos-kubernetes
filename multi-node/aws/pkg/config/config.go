@@ -38,6 +38,7 @@ func newDefaultCluster() *Cluster {
 		DNSServiceIP:             "10.3.0.10",
 		K8sVer:                   "v1.3.0_coreos.1",
 		HyperkubeImageRepo:       "quay.io/coreos/hyperkube",
+		ContainerRuntime:         "docker",
 		ControllerInstanceType:   "m3.medium",
 		ControllerRootVolumeSize: 30,
 		WorkerCount:              1,
@@ -120,6 +121,7 @@ type Cluster struct {
 	DNSServiceIP             string            `yaml:"dnsServiceIP,omitempty"`
 	K8sVer                   string            `yaml:"kubernetesVersion,omitempty"`
 	HyperkubeImageRepo       string            `yaml:"hyperkubeImageRepo,omitempty"`
+	ContainerRuntime         string            `yaml:"containerRuntime,omitempty"`
 	KMSKeyARN                string            `yaml:"kmsKeyArn,omitempty"`
 	CreateRecordSet          bool              `yaml:"createRecordSet,omitempty"`
 	RecordSetTTL             int               `yaml:"recordSetTTL,omitempty"`
