@@ -136,6 +136,20 @@ ExecStart=/usr/bin/rkt fetch /usr/lib/rkt/stage1-images/stage1-coreos.aci /usr/l
 EOF
     }
 
+    local TEMPLATE=/etc/systemd/system/install-kproxy.service
+    [ -f $TEMPLATE ] || {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/mkdir -p /opt/
+ExecStartPre=/usr/bin/curl --fail --silent --show-error --location --create-dirs --output /opt/kube-proxy https://storage.googleapis.com/kubernetes-release/release/v1.3.0-alpha.5/bin/linux/amd64/kube-proxy
+ExecStart=/usr/bin/chmod +x /opt/kube-proxy
+EOF
+    }
+
     local TEMPLATE=/etc/systemd/system/rkt-api.service
     [ $RUNTIME = "rkt" ] && [ ! -f $TEMPLATE ] && {
         echo "TEMPLATE: $TEMPLATE"
@@ -149,6 +163,29 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+    }
+
+    local TEMPLATE=/etc/systemd/system/kproxy.service
+    [ -f $TEMPLATE ] || {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Description=Start Kube-proxy service as Daemon
+Requires=install-kproxy.service
+After=install-kproxy.service
+[Service]
+ExecStart=/opt/kube-proxy \
+--master=http://127.0.0.1:8080 \
+--proxy-mode=iptables \
+--logtostderr=true
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     }
 
     local TEMPLATE=/etc/systemd/system/calico-node.service
@@ -181,60 +218,8 @@ TimeoutStartSec=0
 [Install]
 WantedBy=multi-user.target
 EOF
-    }
 
-    local TEMPLATE=/etc/kubernetes/manifests/kube-proxy.yaml
-    [ -f $TEMPLATE ] || {
-        echo "TEMPLATE: $TEMPLATE"
-        mkdir -p $(dirname $TEMPLATE)
-        cat << EOF > $TEMPLATE
-apiVersion: v1
-kind: Pod
-metadata:
-  name: kube-proxy
-  namespace: kube-system
-  annotations:
-    rkt.alpha.kubernetes.io/stage1-name-override: coreos.com/rkt/stage1-fly
-spec:
-  hostNetwork: true
-  containers:
-  - name: kube-proxy
-    image: ${HYPERKUBE_IMAGE_REPO}:$K8S_VER
-    command:
-    - /hyperkube
-    - proxy
-    - --master=http://127.0.0.1:8080
-    securityContext:
-      privileged: true
-    volumeMounts:
-    - mountPath: /etc/ssl/certs
-      name: ssl-certs-host
-      readOnly: true
-    - mountPath: /sys/module/nf_conntrack/parameters
-      name: sys-hashsize
-      readOnly: false
-    - mountPath: /var/run/dbus
-      name: dbus
-      readOnly: false
-    - mountPath: /proc/sys/net
-      name: proc-sys-net
-      readOnly: false
-  volumes:
-  - hostPath:
-      path: /usr/share/ca-certificates
-    name: ssl-certs-host
-  - hostPath:
-      path: /sys/module/nf_conntrack/parameters
-    name: sys-hashsize
-  - hostPath:
-      path: /var/run/dbus
-    name: dbus
-  - hostPath:
-      path: /proc/sys/net
-    name: proc-sys-net
-EOF
     }
-
     local TEMPLATE=/etc/kubernetes/manifests/kube-apiserver.yaml
     [ -f $TEMPLATE ] || {
         echo "TEMPLATE: $TEMPLATE"
@@ -966,6 +951,7 @@ systemctl daemon-reload
 systemctl start load-rkt-stage1 
 systemctl enable flanneld; systemctl start flanneld
 systemctl enable kubelet; systemctl start kubelet
+systemctl enable kproxy; systemctl start kproxy 
 
 # TODO(pb): these options together have not been tested. They shouldn't be mutually exclusive options in the future.
 if [ $RUNTIME = "rkt" ] && [ $USE_CALICO = "true" ]; then
