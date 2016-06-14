@@ -95,9 +95,9 @@ ExecStartPre=/usr/bin/touch /etc/hosts
 
 Environment=KUBELET_VERSION=${K8S_VER}
 Environment=KUBELET_ACI=${HYPERKUBE_IMAGE_REPO}
-Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf --mount volume=dns,target=/etc/resolv.conf --volume rktbin,kind=host,source=/usr/bin/rkt --mount volume=rktbin,target=/usr/bin/rkt --volume var-lib-rkt,kind=host,source=/var/lib/rkt --mount volume=var-lib-rkt,target=/var/lib/rkt --volume=stage,kind=host,source=/usr/lib/rkt --mount volume=stage,target=/usr/lib/rkt --volume=mp,kind=host,source=/usr/sbin/modprobe --mount volume=mp,target=/usr/bin/modprobe"
+Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf --mount volume=dns,target=/etc/resolv.conf --volume rktbin,kind=host,source=/usr/bin/rkt --mount volume=rktbin,target=/usr/bin/rkt --volume var-lib-rkt,kind=host,source=/var/lib/rkt --mount volume=var-lib-rkt,target=/var/lib/rkt --volume=stage,kind=host,source=/usr/lib/rkt --mount volume=stage,target=/usr/lib/rkt --volume=mp,kind=host,source=/usr/sbin/modprobe --mount volume=mp,target=/usr/bin/modprobe --volume share,kind=host,source=/share --mount volume=share,target=/share"
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
-ExecStart=/usr/lib/coreos/kubelet-wrapper \
+ExecStart=/share/kubelet-wrapper \
   --api-servers=http://127.0.0.1:8080 \
   --network-plugin-dir=/etc/kubernetes/cni/net.d \
   --network-plugin=${K8S_NETWORK_PLUGIN} \
@@ -106,8 +106,8 @@ ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --enable-debugging-handlers=true \
   --v=10 \
   --container-runtime=${RUNTIME} \
-  --rkt-path=/usr/bin/rkt \
-  --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
+  --rkt-path=/share/rkt/rkt \
+  --rkt-stage1-image=/share/rkt/stage1-coreos.aci \
   --register-node=true \
   --allow-privileged=true \
   --config=/etc/kubernetes/manifests \
@@ -129,13 +129,14 @@ EOF
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
 [Service]
-ExecStart=/usr/bin/rkt api-service
+ExecStart=/share/rkt/rkt api-service
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
     }
 
     local TEMPLATE=/etc/systemd/system/calico-node.service
