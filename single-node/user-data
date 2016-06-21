@@ -34,6 +34,9 @@ export DNS_SERVICE_IP=10.3.0.10
 # K8S_VER (above) must be changed to an image tagged with CNI (e.g. v1.2.4_coreos.cni.1).
 export USE_CALICO=false
 
+# Determines the container runtime for kubernetes to use. Accepts 'docker' or 'rkt'.
+export RUNTIME=docker
+
 # -------------
 
 function init_config {
@@ -102,7 +105,7 @@ ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --pod-cidr=${POD_NETWORK} \
   --enable-debugging-handlers=true \
   --v=10 \
-  --container-runtime=rkt \
+  --container-runtime=${RUNTIME} \
   --rkt-path=/usr/bin/rkt \
   --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
   --register-node=true \
@@ -836,7 +839,7 @@ EOF
 }
 EOF
         }
-    else
+	elif [ $RUNTIME = "rkt" ]; then
         local TEMPLATE=/etc/rkt/net.d/10-flannel.conf
         [ -f $TEMPLATE ] || {
             echo "TEMPLATE: $TEMPLATE"
@@ -897,7 +900,16 @@ systemctl stop update-engine; systemctl mask update-engine
 systemctl daemon-reload
 systemctl enable flanneld; systemctl start flanneld
 systemctl enable kubelet; systemctl start kubelet
-systemctl enable rkt-api; systemctl start rkt-api
+
+# TODO(pb): these options together have not been tested. They shouldn't be mutually exclusive options in the future.
+if [ $RUNTIME = "rkt" ] && [ $USE_CALICO = "true" ]; then
+	echo "Setting USE_CALICO=true and RUNTIME=rkt are not compatable options for the time being. Please set USE_CALICO=true only with the docker runtime."
+	exit 1
+fi
+
+if [ $RUNTIME = "rkt" ]; then
+        systemctl enable rkt-api; systemctl start rkt-api
+fi
 
 if [ $USE_CALICO = "true" ]; then
         systemctl enable calico-node; systemctl start calico-node
