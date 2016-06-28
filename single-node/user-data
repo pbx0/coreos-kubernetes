@@ -88,6 +88,9 @@ function init_templates {
         echo "TEMPLATE: $TEMPLATE"
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
+[Unit]
+Requires=load-rkt-stage1.service
+After=load-rkt-stage1.service
 [Service]
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
 ExecStartPre=/usr/bin/touch /etc/hosts
@@ -103,7 +106,7 @@ ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --v=10 \
   --container-runtime=${RUNTIME} \
   --rkt-path=/usr/bin/rkt \
-  --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
+  --rkt-stage1-image=coreos.com/rkt/stage1-coreos \
   --register-node=true \
   --allow-privileged=true \
   --config=/etc/kubernetes/manifests \
@@ -116,6 +119,20 @@ KillMode=process
 
 [Install]
 WantedBy=multi-user.target
+EOF
+    }
+
+    local TEMPLATE=/etc/systemd/system/load-rkt-stage1.service
+    [ -f $TEMPLATE ] || {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Requires=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rkt fetch /usr/lib/rkt/stage1-images/stage1-coreos.aci /usr/lib/rkt/stage1-images/stage1-fly.aci  --insecure-options=image
 EOF
     }
 
@@ -944,6 +961,7 @@ init_flannel
 systemctl stop update-engine; systemctl mask update-engine
 
 systemctl daemon-reload
+systemctl start load-rkt-stage1 
 systemctl enable flanneld; systemctl start flanneld
 systemctl enable kubelet; systemctl start kubelet
 

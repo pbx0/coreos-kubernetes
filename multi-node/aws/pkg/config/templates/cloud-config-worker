@@ -19,9 +19,8 @@ coreos:
       command: start
       content: |
         [Unit]
-        Requires=docker.service
-        After=docker.service
-
+        Requires=docker.service load-rkt-stage1.service
+        After=docker.service load-rkt-stage1.service
         [Service]
         ExecStartPre=/usr/bin/touch /etc/hosts
         Environment=KUBELET_VERSION={{.K8sVer}}
@@ -33,7 +32,7 @@ coreos:
         --network-plugin={{.K8sNetworkPlugin}} \
         --container-runtime={{.ContainerRuntime}} \
         --rkt-path=/usr/bin/rkt \
-        --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
+        --rkt-stage1-image=coreos.com/rkt/stage1-coreos \
         --register-node=true \
         --allow-privileged=true \
         --config=/etc/kubernetes/manifests \
@@ -57,6 +56,18 @@ coreos:
         ExecStart=/usr/bin/rkt api-service
         Restart=always
         RestartSec=10
+
+    - name: load-rkt-stage1.service
+      command: start
+      content: |
+        [Unit]
+        Description=Load rkt stage1 images
+        Documentation=http://github.com/coreos/rkt
+        Requires=network-online.target
+        After=network-online.target
+        [Service]
+        Type=oneshot
+        ExecStart=/opt/rkt/rkt fetch /opt/rkt/stage1-coreos.aci /opt/rkt/stage1-kvm.aci /opt/rkt/stage1-fly.aci  --insecure-options=image
 {{ end }}
 
 {{ if .UseCalico }}

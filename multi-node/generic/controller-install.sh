@@ -95,6 +95,9 @@ function init_templates {
         echo "TEMPLATE: $TEMPLATE"
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
+[Unit]
+Requires=load-rkt-stage1.service
+After=load-rkt-stage1.service
 [Service]
 Environment=KUBELET_VERSION=${K8S_VER}
 Environment=KUBELET_ACI=${HYPERKUBE_IMAGE_REPO}
@@ -108,7 +111,7 @@ ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --network-plugin=${K8S_NETWORK_PLUGIN} \
   --container-runtime=${RUNTIME} \
   --rkt-path=/usr/bin/rkt \
-  --rkt-stage1-image=/usr/lib/rkt/stage1-images/stage1-coreos.aci \
+  --rkt-stage1-image=coreos.com/rkt/stage1-coreos \
   --allow-privileged=true \
   --config=/etc/kubernetes/manifests \
   --hostname-override=${ADVERTISE_IP} \
@@ -120,6 +123,24 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    }
+
+    local TEMPLATE=/etc/systemd/system/load-rkt-stage1.service
+    [ -f $TEMPLATE ] || {
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Description=Load rkt stage1 images
+Documentation=http://github.com/coreos/rkt
+Requires=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/opt/rkt/rkt fetch /opt/rkt/stage1-coreos.aci /opt/rkt/stage1-kvm.aci /opt/rkt/stage1-fly.aci  --insecure-options=image
+EOF
+
     }
 
     local TEMPLATE=/etc/systemd/system/rkt-api.service
