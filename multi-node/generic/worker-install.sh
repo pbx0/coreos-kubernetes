@@ -201,6 +201,8 @@ kind: Pod
 metadata:
   name: kube-proxy
   namespace: kube-system
+  annotations:
+    rkt.alpha.kubernetes.io/stage1-name-override: coreos.com/rkt/stage1-fly
 spec:
   hostNetwork: true
   containers:
@@ -222,15 +224,9 @@ spec:
     - mountPath: /etc/kubernetes/ssl
       name: "etc-kube-ssl"
       readOnly: true
-    - mountPath: /sys/module/nf_conntrack/parameters
-      name: sys-hashsize
-      readOnly: false 
     - mountPath: /var/run/dbus
       name: dbus
       readOnly: false
-    - mountPath: /proc/sys/net
-      name: proc-sys-net
-      readOnly: false 
   volumes:
   - name: "ssl-certs"
     hostPath:
@@ -242,14 +238,8 @@ spec:
     hostPath:
       path: "/etc/kubernetes/ssl"
   - hostPath:
-      path: /sys/module/nf_conntrack/parameters
-    name: sys-hashsize
-  - hostPath:
       path: /var/run/dbus
     name: dbus
-  - hostPath:
-      path: /proc/sys/net
-    name: proc-sys-net
 EOF
     fi
 
