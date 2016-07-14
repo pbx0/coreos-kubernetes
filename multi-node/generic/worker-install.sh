@@ -45,11 +45,7 @@ function init_config {
         fi
     done
 
-    if [ $USE_CALICO = "true" ]; then
-        export K8S_NETWORK_PLUGIN="cni"
-    else
-        export K8S_NETWORK_PLUGIN=""
-    fi
+    export K8S_NETWORK_PLUGIN="cni"
 }
 
 function init_templates {
@@ -212,11 +208,14 @@ EOF
 [Unit]
 Requires=flanneld.service
 After=flanneld.service
+[Service]
+ExecStart=
+ExecStart=/usr/lib/coreos/dockerd daemon --host=fd:// $DOCKER_OPTS $DOCKER_CGROUPS $DOCKER_OPT_MTU $DOCKER_OPT_IPMASQ
 EOF
     fi
 
-     local TEMPLATE=/etc/kubernetes/cni/net.d/10-calico.conf
-    if [ ! -f $TEMPLATE ]; then
+    local TEMPLATE=/etc/kubernetes/cni/net.d/10-calico.conf
+    if [ "${USE_CALICO}" = "true" ] && [ ! -f "${TEMPLATE}" ]; then
         echo "TEMPLATE: $TEMPLATE"
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
@@ -235,6 +234,21 @@ EOF
             "k8s_client_key": "/etc/kubernetes/ssl/worker-key.pem",
             "k8s_client_certificate": "/etc/kubernetes/ssl/worker.pem"
         }
+    }
+}
+EOF
+    fi
+
+    local TEMPLATE=/etc/kubernetes/cni/net.d/10-flannel.conf
+    if [ "${USE_CALICO}" = "false" ] && [ ! -f "${TEMPLATE}" ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+{
+    "name": "flannelnet",
+    "type": "flannel",
+    "delegate": {
+        "isDefaultGateway": true
     }
 }
 EOF
