@@ -164,6 +164,10 @@ func (c Cluster) Config() (*Config, error) {
 	config.APIServerEndpoint = fmt.Sprintf("https://%s", c.ExternalDNSName)
 	config.K8sNetworkPlugin = "cni"
 
+	if config.ContainerRuntime == "rkt" && config.ReleaseChannel != "alpha" {
+		return nil, fmt.Errorf("ContainerRuntime 'rkt' requires that ReleaseChannel be set to 'alpha'")
+	}
+
 	var err error
 	if config.AMI, err = getAMI(config.Region, config.ReleaseChannel); err != nil {
 		return nil, fmt.Errorf("failed getting AMI for config: %v", err)
