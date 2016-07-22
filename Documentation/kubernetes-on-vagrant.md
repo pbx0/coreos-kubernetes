@@ -62,6 +62,8 @@ The default cluster configuration is to start a virtual machine for each role &m
 
 By default, Calico network policy is disabled. To enable it, change the line `export USE_CALICO=false` to `export USE_CALICO=true` in both the `../generic/controller-install.sh` and the `../generic/worker-install.sh` scripts.
 
+Also by default, the container runtime used is docker. To use rkt as the container runtime, change the line `export CONTAINER_RUNTIME=docker` to `export CONTAINER_RUNTIME=rkt` in both the `../generic/controller-install.sh` and the `../generic/worker-install.sh` scripts. Additionally, make sure the `update_channel` is set to `alpha` in your `config.rb` file.
+
 Ensure the latest CoreOS vagrant image will be used by running `vagrant box update`.
 
 Then run `vagrant up` and wait for Vagrant to provision and boot the virtual machines.
