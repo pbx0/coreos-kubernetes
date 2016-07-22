@@ -5,10 +5,10 @@ set -e
 export ETCD_ENDPOINTS="http://127.0.0.1:2379"
 
 # Specify the version (vX.Y.Z) of Kubernetes assets to deploy
-export K8S_VER=v1.3.0_coreos.1
+export K8S_VER=v1.3.2_pb.cni.lo.0
 
 # Hyperkube image repository to use.
-export HYPERKUBE_IMAGE_REPO=quay.io/coreos/hyperkube
+export HYPERKUBE_IMAGE_REPO=quay.io/peanutbutter/hyperkube
 
 # The CIDR network to use for pod IPs.
 # Each pod launched in the cluster will be assigned an IP out of this range.
@@ -34,7 +34,7 @@ export DNS_SERVICE_IP=10.3.0.10
 export USE_CALICO=false
 
 # Determines the container runtime for kubernetes to use. Accepts 'docker' or 'rkt'.
-export CONTAINER_RUNTIME=docker
+export CONTAINER_RUNTIME=rkt
 
 # -------------
 
