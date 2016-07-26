@@ -62,14 +62,12 @@ Environment=KUBELET_VERSION=${K8S_VER}
 Environment=KUBELET_ACI=${HYPERKUBE_IMAGE_REPO}
 Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf \
   --mount volume=dns,target=/etc/resolv.conf \
-  --volume rktbin,kind=host,source=/usr/bin/rkt \
-  --mount volume=rktbin,target=/usr/bin/rkt \
-  --volume var-lib-rkt,kind=host,source=/var/lib/rkt \
-  --mount volume=var-lib-rkt,target=/var/lib/rkt \
-  --volume=stage,kind=host,source=/usr/lib/rkt \
-  --mount volume=stage,target=/usr/lib/rkt \
   --volume=mp,kind=host,source=/usr/sbin/modprobe \
-  --mount volume=mp,target=/usr/bin/modprobe"
+  --mount volume=mp,target=/usr/bin/modprobe \
+  --volume=rkthack,kind=host,source=/etc/rkthack \
+  --mount volume=rkthack,target=/usr/bin/rkt \
+  --volume=stage,kind=host,source=/tmp \
+  --mount volume=stage,target=/tmp"
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
 ExecStart=/usr/lib/coreos/kubelet-wrapper \
   --api-servers=${CONTROLLER_ENDPOINT} \
@@ -92,6 +90,16 @@ RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+EOF
+    fi
+
+    local TEMPLATE=/etc/rkthack
+    if [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+#!/bin/sh
+exec nsenter -m -u -i -n -p -t 1 -- /usr/bin/rkt \$@
 EOF
     fi
 
@@ -321,6 +329,8 @@ EOF
 
 init_config
 init_templates
+
+chmod +x /etc/rkthack
 
 systemctl stop update-engine; systemctl mask update-engine
 

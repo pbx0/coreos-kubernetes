@@ -30,15 +30,13 @@ coreos:
         Environment=KUBELET_VERSION={{.K8sVer}}
         Environment=KUBELET_ACI={{.HyperkubeImageRepo}}
         Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf \
-          --mount volume=dns,target=/etc/resolv.conf \
-          --volume rktbin,kind=host,source=/usr/bin/rkt \
-          --mount volume=rktbin,target=/usr/bin/rkt \
-          --volume var-lib-rkt,kind=host,source=/var/lib/rkt \
-          --mount volume=var-lib-rkt,target=/var/lib/rkt \
-          --volume=stage,kind=host,source=/usr/lib/rkt \
-          --mount volume=stage,target=/usr/lib/rkt \
-          --volume=mp,kind=host,source=/usr/sbin/modprobe \
-          --mount volume=mp,target=/usr/bin/modprobe"
+        --mount volume=dns,target=/etc/resolv.conf \
+        --volume=mp,kind=host,source=/usr/sbin/modprobe \
+        --mount volume=mp,target=/usr/bin/modprobe \
+        --volume=rkthack,kind=host,source=/etc/rkthack \
+        --mount volume=rkthack,target=/usr/bin/rkt \
+        --volume=stage,kind=host,source=/tmp \
+        --mount volume=stage,target=/tmp"
         ExecStart=/usr/lib/coreos/kubelet-wrapper \
         --api-servers={{.SecureAPIServers}} \
         --network-plugin-dir=/etc/kubernetes/cni/net.d \
@@ -131,6 +129,13 @@ coreos:
         RequiredBy=kubelet.service
 
 write_files:
+  - path: /etc/rkthack
+    permissions: 0755
+    owner: root:root
+    content: |
+      #!/bin/sh
+      exec nsenter -m -u -i -n -p -t 1 -- /usr/bin/rkt $@
+
   - path: /etc/kubernetes/ssl/worker.pem.enc
     encoding: gzip+base64
     content: {{.TLSConfig.WorkerCert}}
