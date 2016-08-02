@@ -23,6 +23,9 @@ coreos:
             [Unit]
             Requires=flanneld.service
             After=flanneld.service
+            [Service]
+            ExecStart=
+            ExecStart=/usr/lib/coreos/dockerd daemon --host=fd:// --exec-opt native.cgroupdriver=cgroupfs $DOCKER_OPTS $DOCKER_OPT_BIP $DOCKER_OPT_MTU $DOCKER_OPT_IPMASQ
 
     - name: flanneld.service
       drop-ins:

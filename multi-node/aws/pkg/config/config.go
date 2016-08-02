@@ -30,7 +30,7 @@ const (
 func newDefaultCluster() *Cluster {
 	return &Cluster{
 		ClusterName:              "kubernetes",
-		ReleaseChannel:           "stable",
+		ReleaseChannel:           "alpha",
 		VPCCIDR:                  "10.0.0.0/16",
 		ControllerIP:             "10.0.0.50",
 		PodCIDR:                  "10.2.0.0/16",
