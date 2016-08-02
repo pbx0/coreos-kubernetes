@@ -109,6 +109,20 @@ WantedBy=multi-user.target
 EOF
     fi
 
+    local TEMPLATE=/etc/systemd/system/docker.service.d/40-flannel.conf
+    if [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Requires=flanneld.service
+After=flanneld.service
+[Service]
+ExecStart=
+ExecStart=/usr/lib/coreos/dockerd daemon --host=fd:// --exec-opt native.cgroupdriver=systemd \$DOCKER_OPTS \$DOCKER_OPT_BIP \$DOCKER_OPT_MTU \$DOCKER_OPT_IPMASQ
+EOF
+    fi
+
     local TEMPLATE=/etc/systemd/system/calico-node.service
     if [ "${USE_CALICO}" = "true" ] && [ ! -f "${TEMPLATE}" ]; then
         echo "TEMPLATE: $TEMPLATE"
