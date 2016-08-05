@@ -93,16 +93,16 @@ Environment="RKT_OPTS=--volume dns,kind=host,source=/etc/resolv.conf \
   --volume=mp,kind=host,source=/usr/sbin/modprobe \
   --mount volume=mp,target=/usr/bin/modprobe \
   --volume=rkthack,kind=host,source=/etc/rkthack \
-  --mount volume=rkthack,target=/usr/bin/rkt \
+  --mount volume=rkthack,target=/opt/rkt/rkt \
   --volume=stage,kind=host,source=/tmp \
   --mount volume=stage,target=/tmp"
 ExecStartPre=/usr/bin/mkdir -p /etc/kubernetes/manifests
-ExecStart=/usr/lib/coreos/kubelet-wrapper \
+ExecStart=/etc/kubelet-wrapper \
   --api-servers=http://127.0.0.1:8080 \
   --network-plugin-dir=/etc/kubernetes/cni/net.d \
   --network-plugin=${K8S_NETWORK_PLUGIN} \
   --container-runtime=${CONTAINER_RUNTIME} \
-  --rkt-path=/usr/bin/rkt \
+  --rkt-path=/opt/rkt/rkt \
   --rkt-stage1-image=coreos.com/rkt/stage1-coreos \
   --register-node=true \
   --allow-privileged=true \
@@ -125,7 +125,7 @@ EOF
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
 #!/bin/sh
-exec nsenter -m -u -i -n -p -t 1 -- /usr/bin/rkt \$@
+exec nsenter -m -u -i -n -p -t 1 -- /opt/rkt/rkt \$@
 EOF
     fi
 
@@ -140,6 +140,130 @@ After=load-rkt-stage1.service
 EOF
     fi
 
+    local TEMPLATE=/etc/systemd/system/install-rkt.service
+    if [ ${CONTAINER_RUNTIME} = "rkt" ] && [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Description=Fetch rkt
+Documentation=http://github.com/coreos/rkt
+Requires=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/mkdir -p /etc/rkt /opt/downloads /opt/rkt/
+ExecStartPre=/usr/bin/curl --fail --silent --location --create-dirs --output /opt/downloads/rkt.tar.gz https://github.com/coreos/rkt/releases/download/v1.12.0/rkt-v1.12.0.tar.gz
+ExecStart=/usr/bin/tar --strip-components=1 -xf /opt/downloads/rkt.tar.gz -C /opt/rkt/ --overwrite
+EOF
+    fi
+
+
+    local TEMPLATE=/etc/kubelet-wrapper
+    if [ ${CONTAINER_RUNTIME} = "rkt" ] && [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+#!/bin/bash
+
+set -e
+
+if [ -z "\${KUBELET_VERSION}" ]; then
+    echo "ERROR: must set KUBELET_VERSION"
+    exit 1
+fi
+
+KUBELET_ACI="\${KUBELET_ACI:-quay.io/coreos/hyperkube}"
+
+mkdir --parents /etc/kubernetes
+mkdir --parents /var/lib/docker
+mkdir --parents /var/lib/kubelet
+mkdir --parents /run/kubelet
+
+exec /opt/rkt/rkt run \
+  --volume etc-kubernetes,kind=host,source=/etc/kubernetes \
+  --volume etc-ssl-certs,kind=host,source=/usr/share/ca-certificates \
+  --volume var-lib-docker,kind=host,source=/var/lib/docker \
+  --volume var-lib-kubelet,kind=host,source=/var/lib/kubelet \
+  --volume os-release,kind=host,source=/usr/lib/os-release \
+  --volume run,kind=host,source=/run \
+  --mount volume=etc-kubernetes,target=/etc/kubernetes \
+  --mount volume=etc-ssl-certs,target=/etc/ssl/certs \
+  --mount volume=var-lib-docker,target=/var/lib/docker \
+  --mount volume=var-lib-kubelet,target=/var/lib/kubelet \
+  --mount volume=os-release,target=/etc/os-release \
+  --mount volume=run,target=/run \
+  --trust-keys-from-https \
+  \$RKT_OPTS \
+  --stage1-name=coreos.com/rkt/stage1-fly \
+  \${KUBELET_ACI}:\${KUBELET_VERSION} --exec=/kubelet -- "\$@"
+EOF
+    fi
+
+    local TEMPLATE=/etc/systemd/system/flanneld.service
+    if [ ${CONTAINER_RUNTIME} = "rkt" ] && [ ! -f $TEMPLATE ]; then
+        echo "TEMPLATE: $TEMPLATE"
+        mkdir -p $(dirname $TEMPLATE)
+        cat << EOF > $TEMPLATE
+[Unit]
+Description=Network fabric for containers
+Documentation=https://github.com/coreos/flannel
+After=etcd.service etcd2.service
+Before=docker.service
+Requires=install-rkt.service
+After=install-rkt.service
+
+[Service]
+Type=notify
+Restart=always
+RestartSec=5
+Environment="TMPDIR=/var/tmp/"
+Environment="FLANNEL_VER=0.5.5"
+Environment="FLANNEL_IMG=quay.io/coreos/flannel"
+Environment="ETCD_SSL_DIR=/etc/ssl/etcd"
+EnvironmentFile=-/run/flannel/options.env
+LimitNOFILE=40000
+LimitNPROC=1048576
+ExecStartPre=/sbin/modprobe ip_tables
+ExecStartPre=/usr/bin/mkdir -p /run/flannel
+ExecStartPre=/usr/bin/mkdir -p \${ETCD_SSL_DIR}
+
+ExecStart=/opt/rkt/rkt run --net=host \
+   --stage1-path=/opt/rkt/stage1-fly.aci \
+   --insecure-options=image \
+   --set-env=NOTIFY_SOCKET=/run/systemd/notify \
+   --inherit-env=true \
+   --volume runsystemd,kind=host,source=/run/systemd,readOnly=false \
+   --volume runflannel,kind=host,source=/run/flannel,readOnly=false \
+   --volume ssl,kind=host,source=\${ETCD_SSL_DIR},readOnly=true \
+   --volume certs,kind=host,source=/usr/share/ca-certificates,readOnly=true \
+   --volume resolv,kind=host,source=/etc/resolv.conf,readOnly=true \
+   --mount volume=runsystemd,target=/run/systemd \
+   --mount volume=runflannel,target=/run/flannel \
+   --mount volume=ssl,target=\${ETCD_SSL_DIR} \
+   --mount volume=certs,target=/etc/ssl/certs \
+   --mount volume=resolv,target=/etc/resolv.conf \
+   \${FLANNEL_IMG}:\${FLANNEL_VER} \
+   --exec /opt/bin/flanneld \
+   -- --ip-masq=true
+
+# Update docker options
+ExecStartPost=/opt/rkt/rkt run --net=host \
+   --stage1-path=/opt/rkt/stage1-fly.aci \
+   --insecure-options=image \
+   --volume runvol,kind=host,source=/run,readOnly=false \
+   --mount volume=runvol,target=/run \
+   \${FLANNEL_IMG}:\${FLANNEL_VER} \
+   --exec /opt/bin/mk-docker-opts.sh -- -d /run/flannel_docker_opts.env -i
+
+ExecStopPost=/opt/rkt/rkt gc --mark-only
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+
     local TEMPLATE=/etc/systemd/system/load-rkt-stage1.service
     if [ ${CONTAINER_RUNTIME} = "rkt" ] && [ ! -f $TEMPLATE ]; then
         echo "TEMPLATE: $TEMPLATE"
@@ -148,9 +272,11 @@ EOF
 [Unit]
 Requires=network-online.target
 After=network-online.target
+Requires=install-rkt.service
+After=install-rkt.service
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/rkt fetch /usr/lib/rkt/stage1-images/stage1-coreos.aci /usr/lib/rkt/stage1-images/stage1-fly.aci  --insecure-options=image
+ExecStart=/opt/rkt/rkt fetch /opt/rkt/stage1-coreos.aci /opt/rkt/stage1-kvm.aci /opt/rkt/stage1-fly.aci  --insecure-options=image
 EOF
     fi
 
@@ -159,8 +285,11 @@ EOF
         echo "TEMPLATE: $TEMPLATE"
         mkdir -p $(dirname $TEMPLATE)
         cat << EOF > $TEMPLATE
+[Unit]
+Requires=install-rkt.service
+After=install-rkt.service
 [Service]
-ExecStart=/usr/bin/rkt api-service
+ExecStart=/opt/rkt/rkt api-service
 Restart=always
 RestartSec=10
 
@@ -949,6 +1078,7 @@ init_templates
 systemctl enable etcd2; systemctl start etcd2
 
 chmod +x /etc/rkthack
+chmod +x /etc/kubelet-wrapper
 
 init_flannel
 
@@ -957,6 +1087,7 @@ systemctl stop update-engine; systemctl mask update-engine
 systemctl daemon-reload
 
 if [ $CONTAINER_RUNTIME = "rkt" ]; then
+        systemctl start install-rkt
         systemctl start load-rkt-stage1 
         systemctl enable rkt-api; systemctl start rkt-api
 fi
